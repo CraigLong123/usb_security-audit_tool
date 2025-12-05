@@ -1,0 +1,91 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project output files - IMPORTANT!
+reports/
+*.json
+!config/*.json
+test_*.json
+output/
+results/
+
+# Sensitive data - CRITICAL TO IGNORE!
+*.hash
+*.hashes
+passwords.txt
+password_hashes.txt
+credentials.json
+*.key
+*.pem
+*.p12
+
+# Log files
+*.log
+logs/
+audit_*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+temp/
+tmp/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# OS specific
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Security audit specific
+captured_hashes/
+extracted_data/
+system_dumps/
+*.dump
+*.cap
+*.pcap
+
+# Jupyter Notebooks (if you use them for analysis)
+.ipynb_checkpoints/
+*.ipynb
+
+# Database files (if you add SQLite later)
+*.db
+*.sqlite
+*.sqlite3
+
+# Documentation builds
+docs/_build/
+site/
