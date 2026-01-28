@@ -73,9 +73,7 @@ class SystemInfoCollector:
                 - services: Running Windows services
                 - users: Local user accounts
                 
-        Academic Note:
-            This aggregation pattern is based on the Facade design pattern,
-            providing a simplified interface to complex subsystem operations.
+       
         """
         logger.info("Starting comprehensive system information collection")
         
@@ -220,9 +218,7 @@ class SystemInfoCollector:
                 - eol_date: Date when support ended (if applicable)
                 - risk_level: Associated risk (Critical, High, Low)
                 
-        Academic Reference:
-            Microsoft Lifecycle Policy: https://docs.microsoft.com/en-us/lifecycle/
-            This data should be updated regularly as EOL dates change.
+       
         """
         # Known EOL dates for Windows versions (as of 2025)
         # This dictionary should be externalized to a config file in production
@@ -412,9 +408,7 @@ class SystemInfoCollector:
                 - publisher: Software vendor
                 - install_date: When software was installed
                 
-        Academic Context:
-            This implements asset inventory as per CIS Control 2
-            (Inventory and Control of Software Assets)
+    
             
         Technical Note:
             Queries both 32-bit and 64-bit registry paths to ensure
