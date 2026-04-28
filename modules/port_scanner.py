@@ -100,3 +100,95 @@ class PortScanner:
         this reserach prirotises completness over external view"""
         
         logger.info
+
+        # add metadata
+        self.port_info['timestamp'] = self.collection_timestamp
+        self.port_info['module_version'] = '1.0.0'
+        self.port_info['scan_type'] = 'local_enumeration'
+
+        # enumerate listening ports
+        try:
+            self.port_info['listening_ports'] = self._enumeration_listening_ports()
+        except Exception as e:
+            logger.error(f"Failed to enumerate ports: {e}")
+            self.port_info['listening_ports'] = {'error' : str(e)}
+
+        #identify dangerous ports
+        try: 
+            self.port_info['dangerous_ports_found'] = self._identify_dangerous_ports()
+        except Exception as e:
+            logger.error(f"Failed to identify dangerous ports : {e}")
+            self.port_info['dangerous_ports_found'] = {'error' : str(e)}
+
+        
+        # get process information for ports
+        try:
+            self.port_info['port_processes'] = self._get_port_processes()
+        except Exception as e :
+            logger.error(f"Failed to get port processes :{e}")
+            self.port_info['port_processes'] = {'error': str(e)}
+
+        #assess overall risk
+        try:
+            self.port_info['risk_assessment'] = self._assess_port_risk()
+        except Exception as e:
+            logger.error(f"Failed to assess port risk:  {e}")
+            self.port_info['risk_assessment'] = {'error': str(e)}
+        logger.info("Port scan completed")
+        return self.port_info
+    
+
+    def _enumerate_listening_ports(self) -> Dict:
+        """
+        enumerates all listening TCP and UDP ports on the system
+        uses psutil to query saystem network connections, filtering for LISTEN state (TCP) and all UDP bindings. 
+        This provides accurate local viuew of what services are accepting connections.
+        
+        returns 
+        dict: listening ports organised by protocol containing:
+        tcp_ports : list of TCP ports in listen state
+        udp_ports : list of UDP ports with bindings 
+        total_listening: count of all listening ports 
+
+        technical implementation
+        psutil.net_connections() provides cross-platform interface to system network connection tables (netstat equivalent.) 
+        for Windows, this queries GetExtendedTcpTable and GetExtendedUdpTable APIs
+        LISTEN state indicates TCP socket accepting connections; UDP is connectionless so any binding indicates listening.
+        
+        Security context 
+        every listening port represents potential attack vector 
+        even ports bound to localhost may be exploitable through browser-based attacks or local priviledge escalation. ports bound to 0.0.0.0 or public Ips are directly 
+        network- accessible.
+    
+        """
+
+        logger.info("Enumerating listening ports")
+
+        tcp_ports = []
+        udp_ports = []
+        port_details = []
+
+        try:
+            #get all network connections
+            connections =  psutil.net_connections(kind='inet')
+
+            for conn in connections:
+                # TCP connections in LISTEN state
+
+                if conn.status =='LISTEN' and conn.laddr:
+                    port = conn.laddr.portaddress = conn.laddr.ip
+
+                    #avoid duplicates (same port may appear multiple times)
+                    if port not in tcp_ports:
+                        tcp_ports.append(port)
+
+                    #store detailed information
+                    port_details.append({
+                        'port' : port,
+                        'protocol' : 'TCP',
+                        'address' : address,
+                        'status' : 'LISTENING',
+                        'pid' : conn.pid if conn.pid else None
+                    })
+
+        
