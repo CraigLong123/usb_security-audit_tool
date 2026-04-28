@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 
-class PasswordPoliciyChecker:
+class PasswordPolicyChecker:
 
     """
 assesses windows password policy configuration and compliance
@@ -51,7 +51,7 @@ password history: prevention of password reuse
 
 
     def check_all(self) -> Dict:
-        """
+        """"
         Docstring for check_all
         organises the comprehensive password polcy assessment. 
 
@@ -88,7 +88,7 @@ password history: prevention of password reuse
         
         #collect account lockout policy
         try:
-            self.policy_info['lockout_policy'] + self._assess_compliance()
+            self.policy_info['lockout_policy'] = self._check_lockout_policy()
         except Exception as e:
             logger.error(f"Failed to assess compliance: {e}")
             self.policy_info['compliance'] = {'error' : str(e)}
@@ -346,16 +346,19 @@ password history: prevention of password reuse
                     #Look for password complexity setting
                     #format password complexity = 1 (enabled) or 0 (disabled)
                     for line in content.split ('\n'):
-                        if 'PassowrdComplexity' in line:
+                        if 'PasswordComplexity' in line:
                             if '= 1' in line or ' =1' in line:
                                 os.unlink(temp_path)
-                                return False
+                                return True #1 = enabled
+                            elif '=0' in line or '=0' in line:
+                                os.unlink(temp_path)
+                                return False #0=disabled
                             
 
                 #Cleanup temp file
                 os.unlink(temp_path)
         except Exception as e:
-            logger.debuyg(f"secedit method failed: {e}")
+            logger.debug(f"secedit method failed: {e}")
 
         # if both methods failed, return none (unknown)
         return None
@@ -388,13 +391,13 @@ password history: prevention of password reuse
 
         #lockout settings are already collected in _check_password_policy
         #this method extracts them for seperat analysis
-        password_policy = self.policy_infoget('password_policy' , {})
+        password_policy = self.policy_info.get('password_policy' , {})
 
         lockout = {
-            'threshold' : password_policy.get('lockout_threshhold'),
+            'threshold' : password_policy.get('lockout_threshold'),
             'duration_minutes' : password_policy.get('lockout_duration_minutes'),
             'windows_minutes': password_policy.get('lockout_window_minutes'),
-            'enabled' : password_policy.get('lockout_threshhold' , 0) >0
+            'enabled' : password_policy.get('lockout_threshold' , 0) >0
         }
 
         return lockout
@@ -483,4 +486,322 @@ password history: prevention of password reuse
 
 
         #check 5: minimum password age
+        min_age = password_policy.get('min_password_age_days', 0)
+        if min_age >= 1:
+            compliance['checks_passed'] += 1
+        else:
+            compliance['issues'].append("Minimum password age is 0 (allows immediate password changes)")
+            compliance['recommendations'].append("Set minimum password age to 1 day to prevent password cycling")
+        
+        # Check 6: Account lockout enabled
+        lockout_threshold = password_policy.get('lockout_threshold', 0)
+        if lockout_threshold > 0:
+            compliance['checks_passed'] += 1
+            # Additional check: is threshold appropriate?
+            if lockout_threshold < 3:
+                compliance['issues'].append(f"Lockout threshold is {lockout_threshold} (too low, DoS risk)")
+                compliance['recommendations'].append("Consider increasing lockout threshold to 5-10 attempts")
+            elif lockout_threshold > 20:
+                compliance['issues'].append(f"Lockout threshold is {lockout_threshold} (too high)")
+                compliance['recommendations'].append("Reduce lockout threshold to 5-10 attempts")
+        else:
+            compliance['issues'].append("Account lockout is disabled (brute force attacks possible)")
+            compliance['recommendations'].append("Enable account lockout with threshold of 5-10 attempts")
+        
+        # Check 7: Lockout duration appropriate
+        lockout_duration = password_policy.get('lockout_duration_minutes', 0)
+        if lockout_duration == -1:
+            compliance['checks_passed'] += 1
+        elif 15 <= lockout_duration <= 60:
+            compliance['checks_passed'] += 1
+        elif lockout_duration > 0:
+            compliance['checks_passed'] += 0.5
+            compliance['issues'].append(f"Lockout duration is {lockout_duration} minutes (consider 15-60 minutes)")
+        
+        # Check 8: Lockout window appropriate
+        lockout_window = password_policy.get('lockout_window_minutes', 0)
+        if 15 <= lockout_window <= 60:
+            compliance['checks_passed'] += 1
+        elif lockout_window > 0:
+            compliance['checks_passed'] += 0.5
+            compliance['issues'].append(f"Lockout observation window is {lockout_window} minutes (consider 15-60 minutes)")
+        
+        # Calculate overall compliance percentage
+        compliance['compliance_percentage'] = (compliance['checks_passed'] / compliance['checks_total']) * 100
+        
+        # Determine compliance level
+        if compliance['compliance_percentage'] >= 90:
+            compliance['compliance_level'] = "Excellent"
+        elif compliance['compliance_percentage'] >= 75:
+            compliance['compliance_level'] = "Good"
+        elif compliance['compliance_percentage'] >= 50:
+            compliance['compliance_level'] = "Fair"
+        else:
+            compliance['compliance_level'] = "Poor"
+        
+        logger.info(f"Compliance assessment: {compliance['compliance_level']} ({compliance['compliance_percentage']:.1f}%)")
+        return compliance
+    
+    def _assess_policy_risk(self) -> Dict:
+        """
+        Calculates overall password policy risk level.
+        
+        Aggregates findings from policy assessment to determine risk score.
+        Uses weighted factors based on severity of policy weaknesses.
+        
+        Returns:
+            Dict: Risk assessment containing:
+                - overall_risk: Low, Medium, High, or Critical
+                - risk_score: Numeric score (0-10, higher = more risk)
+                - critical_findings: List of severe issues
+                - recommendations: Prioritized remediation steps
+                
+        Risk Scoring Methodology:
+            Weighted risk factors:
+            - No password complexity: +3 points (high)
+            - Password length < 8: +4 points (critical)
+            - No lockout policy: +3 points (high)
+            - No password expiration: +2 points (medium)
+            - Low password history: +2 points (medium)
+            
+            Score ranges:
+            - 0-2: Low risk
+            - 3-5: Medium risk
+            - 6-8: High risk
+            - 9-10: Critical risk
+        """
+        logger.info("Assessing password policy risk")
+        
+        risk_score = 0
+        findings = []
+        recommendations = []
+        
+        password_policy = self.policy_info.get('password_policy', {})
+        
+        # Critical: Password length too short
+        min_length = password_policy.get('min_password_length', 0)
+        if min_length < 8:
+            risk_score += 4
+            findings.append(f"CRITICAL: Minimum password length is only {min_length} characters")
+            recommendations.append("Immediately increase minimum password length to at least 8 characters")
+        elif min_length < 14:
+            risk_score += 1
+            findings.append(f"MEDIUM: Password length is {min_length} (CIS recommends 14+)")
+        
+        # High: No password complexity
+        complexity = password_policy.get('complexity_enabled')
+        if complexity is False:
+            risk_score += 3
+            findings.append("HIGH: Password complexity requirements are disabled")
+            recommendations.append("Enable password complexity to require mixed character types")
+        
+        # High: No account lockout
+        lockout_threshold = password_policy.get('lockout_threshold', 0)
+        if lockout_threshold == 0:
+            risk_score += 3
+            findings.append("HIGH: Account lockout is disabled (unlimited brute force attempts)")
+            recommendations.append("Enable account lockout with 5-10 attempt threshold")
+        elif lockout_threshold > 20:
+            risk_score += 1
+            findings.append(f"LOW: Lockout threshold is high ({lockout_threshold} attempts)")
+        
+        # Medium: No password expiration
+        max_age = password_policy.get('max_password_age_days', -1)
+        if max_age == -1:
+            risk_score += 2
+            findings.append("MEDIUM: Passwords never expire")
+            recommendations.append("Set password expiration to 60-90 days")
+        
+        # Medium: Insufficient password history
+        history = password_policy.get('password_history_count', 0)
+        if history < 5:
+            risk_score += 2
+            findings.append(f"MEDIUM: Password history only remembers {history} passwords")
+            recommendations.append("Increase password history to at least 24 passwords")
+        elif history < 24:
+            risk_score += 1
+            findings.append(f"LOW: Password history is {history} (recommend 24)")
+        
+        # Low: No minimum password age
+        min_age = password_policy.get('min_password_age_days', 0)
+        if min_age == 0:
+            risk_score += 1
+            findings.append("LOW: No minimum password age (allows password cycling)")
+            recommendations.append("Set minimum password age to 1 day")
+        
+        # Cap risk score at 10
+        risk_score = min(risk_score, 10)
+        
+        # Determine risk level
+        if risk_score >= 9:
+            risk_level = "Critical"
+        elif risk_score >= 6:
+            risk_level = "High"
+        elif risk_score >= 3:
+            risk_level = "Medium"
+        else:
+            risk_level = "Low"
+        
+        # If no issues, add positive finding
+        if not findings:
+            findings.append("No significant password policy issues detected")
+            recommendations.append("Maintain current password policy configuration")
+        
+        assessment = {
+            'overall_risk': risk_level,
+            'risk_score': risk_score,
+            'max_score': 10,
+            'findings': findings,
+            'recommendations': recommendations
+        }
+        
+        logger.info(f"Password policy risk: {risk_level} (score: {risk_score}/10)")
+        return assessment
+    
+    def export_to_json(self, filepath: str) -> bool:
+        """
+        Exports password policy assessment to JSON file.
+        
+        Args:
+            filepath (str): Destination path for JSON export
+            
+        Returns:
+            bool: True if export successful, False otherwise
+            
+        Security Note:
+            While this doesn't contain actual passwords, policy settings
+            can inform attackers about password requirements for targeted
+            attacks. Protect exported files appropriately.
+        """
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.policy_info, f, indent=4, ensure_ascii=False)
+            
+            logger.info(f"Password policy assessment exported to {filepath}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to export password policy assessment: {e}")
+            return False
+
+
+# Module-level convenience function
+def check_password_policy() -> Dict:
+    """
+    Convenience function to check password policy.
+    
+    Provides simple interface for main audit script.
+    
+    Returns:
+        Dict: Complete password policy assessment
+        
+    Example:
+        >>> from modules.password_policy import check_password_policy
+        >>> results = check_password_policy()
+        >>> print(results['risk_assessment']['overall_risk'])
+    """
+    checker = PasswordPolicyChecker()
+    return checker.check_all()
+
+
+# Testing block
+if __name__ == "__main__":
+    """
+    Test harness for independent module testing.
+    """
+    print("=" * 60)
+    print("Password Policy Assessment - Test Run")
+    print("=" * 60)
+    
+    # Create checker instance
+    checker = PasswordPolicyChecker()
+    
+    # Perform assessment
+    policy_data = checker.check_all()
+    
+    # Display summary
+    print(f"\n✓ Assessment completed at: {policy_data['timestamp']}")
+    
+    # Show password policy
+    if 'password_policy' in policy_data:
+        print("\n--- Password Policy ---")
+        policy = policy_data['password_policy']
+        if isinstance(policy, dict) and policy.get('retrieval_successful'):
+            print(f"Minimum Length: {policy.get('min_password_length', 'N/A')} characters")
+            
+            max_age = policy.get('max_password_age_days', 'N/A')
+            if max_age == -1:
+                print("Maximum Age: Never expires")
+            else:
+                print(f"Maximum Age: {max_age} days")
+            
+            print(f"Minimum Age: {policy.get('min_password_age_days', 'N/A')} days")
+            print(f"Password History: {policy.get('password_history_count', 'N/A')} passwords")
+            
+            complexity = policy.get('complexity_enabled')
+            if complexity is True:
+                print("Complexity: Enabled ✓")
+            elif complexity is False:
+                print("Complexity: Disabled ✗")
+            else:
+                print("Complexity: Unknown")
+        else:
+            print("Could not retrieve password policy")
+    
+    # Show lockout policy
+    if 'lockout_policy' in policy_data:
+        print("\n--- Account Lockout Policy ---")
+        lockout = policy_data['lockout_policy']
+        if isinstance(lockout, dict):
+            threshold = lockout.get('threshold', 0)
+            if threshold > 0:
+                print(f"Lockout Threshold: {threshold} failed attempts")
+                
+                duration = lockout.get('duration_minutes', 'N/A')
+                if duration == -1:
+                    print("Lockout Duration: Until admin unlocks")
+                else:
+                    print(f"Lockout Duration: {duration} minutes")
+                
+                print(f"Observation Window: {lockout.get('window_minutes', 'N/A')} minutes")
+            else:
+                print("Account Lockout: Disabled ✗")
+    
+    # Show compliance
+    if 'compliance' in policy_data:
+        print("\n--- Compliance Assessment ---")
+        compliance = policy_data['compliance']
+        if isinstance(compliance, dict):
+            print(f"Compliance Level: {compliance.get('compliance_level', 'Unknown')}")
+            print(f"Compliance Score: {compliance.get('compliance_percentage', 0):.1f}%")
+            print(f"Checks Passed: {compliance.get('checks_passed', 0)}/{compliance.get('checks_total', 0)}")
+            
+            if compliance.get('issues'):
+                print(f"\nIssues Found: {len(compliance['issues'])}")
+    
+    # Show risk assessment
+    if 'risk_assessment' in policy_data:
+        print("\n--- Risk Assessment ---")
+        assessment = policy_data['risk_assessment']
+        if isinstance(assessment, dict):
+            print(f"Overall Risk: {assessment.get('overall_risk')} (Score: {assessment.get('risk_score')}/10)")
+            
+            if assessment.get('findings'):
+                print("\nFindings:")
+                for finding in assessment['findings']:
+                    print(f"  • {finding}")
+            
+            if assessment.get('recommendations'):
+                print("\nTop Recommendations:")
+                for i, rec in enumerate(assessment['recommendations'][:5], 1):
+                    print(f"  {i}. {rec}")
+    
+    # Export to test file
+    test_export_path = "test_password_policy.json"
+    if checker.export_to_json(test_export_path):
+        print(f"\n✓ Data exported to: {test_export_path}")
+    
+    print("\n" + "=" * 60)
+    print("Test completed successfully!")
+    print("=" * 60)
         
