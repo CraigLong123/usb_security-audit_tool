@@ -150,7 +150,7 @@ class FirewallChecker:
                 ['netsh', 'advfirewall', 'show', 'allprofiles', 'state'],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=300,
                 encoding='utf-8',
                 errors='ignore'
             )
@@ -405,7 +405,9 @@ class FirewallChecker:
                     else:
                         risk_score += 4
                         findings.append(f"HIGH: {profile_name.capitalize()} firewall is DISABLED")
-                        recommendations.append(f"Enable {profile_name} profile firewall")
+                elif isinstance(profile_data, dict) and profile_data.get('enabled') is None:
+                        findings.append(f"UNKNOWN: Could not determine {profile_name.capitalize()} firewall state")
+                        recommendations.append(f"Manually verify {profile_name} firewall is enabled")
                     
         # Assess windows defender status
         if 'defender_status' in self.firewall_info:
@@ -421,7 +423,8 @@ class FirewallChecker:
                 # check if antivirus is disabled
                 if defender.get('antivirus_enabled') == False:
                     risk_score += 3
-                    findings.append("High: Window Defender antivirus is DISABLED")
+                    findings.append("HIGH: Window Defender antivirus is DISABLED")
+                    recommendations.append("Enable Windows Defender antiirus immediately")
 
                 #check for outdated definitions
                 if defender.get('signatures_outdated') == True:
